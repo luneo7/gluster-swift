@@ -314,6 +314,23 @@ def do_fadvise64(fd, offset, length):
     _posix_fadvise(fd, ctypes.c_uint64(offset),
                    ctypes.c_uint64(length), 4)
 
+def do_removewritepermissions(path):
+    """Remove write permissions from this path, while keeping all other permissions intact.
+
+    Params:
+        path:  The path whose permissions to alter.
+    """
+    NO_USER_WRITING = ~stat.S_IWUSR
+    NO_GROUP_WRITING = ~stat.S_IWGRP
+    NO_OTHER_WRITING = ~stat.S_IWOTH
+    NO_WRITING = NO_USER_WRITING & NO_GROUP_WRITING & NO_OTHER_WRITING
+
+    try:
+        current_permissions = stat.S_IMODE(os.lstat(path).st_mode)
+        os.chmod(path, current_permissions & NO_WRITING)
+    except OSError as err:
+        raise GlusterFileSystemOSError(
+            err.errno, '%s, os.chmod("%s")' % (err.strerror, path))
 
 def do_lseek(fd, pos, how):
     try:

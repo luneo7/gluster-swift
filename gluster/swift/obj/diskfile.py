@@ -39,7 +39,7 @@ from swift.common.swob import multi_range_iterator
 from gluster.swift.common.exceptions import GlusterFileSystemOSError
 from gluster.swift.common.fs_utils import do_fstat, do_open, do_close, \
     do_unlink, do_chown, do_fsync, do_fchown, do_stat, do_write, do_read, \
-    do_fadvise64, do_rename, do_fdatasync, do_lseek, do_mkdir
+    do_fadvise64, do_rename, do_fdatasync, do_lseek, do_mkdir, do_removewritepermissions
 from gluster.swift.common.utils import read_metadata, write_metadata, \
     validate_object, create_object_metadata, rmobjdir, dir_is_object, \
     get_object_metadata
@@ -308,6 +308,7 @@ class DiskFileWriter(object):
         while True:
             try:
                 do_rename(self._tmppath, df._data_file)
+                do_removewritepermissions(df._data_file)
             except OSError as err:
                 if err.errno in (errno.ENOENT, errno.EIO,
                                  errno.EBUSY, errno.ESTALE) \
@@ -940,6 +941,20 @@ class DiskFile(object):
                                      directory
         """
         data_file = os.path.join(self._put_datadir, self._obj)
+
+        # Try to see if the destination is a file that already exists and
+        # access time is less or equal now so it can be overwritten (worm)
+        try:
+            fstats = do_stat(data_file)
+        except GlusterFileSystemOSError as serr:
+            pass
+        else:
+            if fstats is not None and stat.S_ISREG(fstats.st_mode) and fstats[stat.ST_ATIME] > time.time():
+                raise DiskFileError("DiskFile.create(): create failed"
+                                    " because path %s already exists, and"
+                                    " access time is greater than "
+                                    " now" % (data_file,
+                                                           str(serr)))
 
         # Assume the full directory path exists to the file already, and
         # construct the proper name for the temporary file.
